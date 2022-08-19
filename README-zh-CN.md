@@ -117,4 +117,55 @@ Dragonfly 目前支持以下 Redis 特定参数：
 
 此外，Dragonfly还有自己的特定的参数选项：
 
-- `memcache_port`：
+- `memcache_port`：在此端口上启动memcached兼容API，默认未启动
+- `keys_output_limit`：使用`keys`命令时，返回的最大数量。默认是8192。`keys`是一个不安全的命令，我们对该命令进行截断，防止返回太多的keys导致内存溢出。
+- `dbnum`：select 支持的最大数据库数。
+- `cache_mode`：查看[Cache](https://github.com/chubxu/dragonfly#novel-cache-design) 章节
+- `hz`：keys的过期检查频率， 默认为1000。低频率使用更少的CPU，但是会增长空闲key的保留时间。
+
+对于更多的选项，运行 `dragonfly --help`命令查看。
+
+# Roadmap and status
+
+当前的Dragonfly支持130个Redis命令和所有的memcache命令包括`cas`。我们几乎兼容了Redis 2.8的所有API。我们的第一个里程碑将是稳定当前的基本功能并与 Redis 2.8 和 Memcached API 实现 API 对等。如果你发现了你需要的API，但是目前还未实现，请提交issue告知我们。
+
+下一个里程碑将是实现redis -> dragonfly以及dragonfly<->dragonfly的副本集以实现dragonfly的高可用能力。
+
+对于dragonfly的本地复制，我们计划设计一种分布式日志格式，在复制时支持更高数量级的复制速度。
+
+在完成复制和失败转移的功能后，我们将继续实现其它的Redis API，包括Redis3至5版本。
+
+查阅[API readiness doc](https://github.com/chubxu/dragonfly/blob/main/docs/api_status.md)文档来查看dragonfly的当前状态
+
+## 高可用里程碑
+
+实现主从复制
+
+## "Maturity"里程碑
+
+实现Redis3、4、5版本的API，但不包括集群、模块、内存自省（memory introspection）的命令。同样也不会包括geo命令、keyspace notifications、流处理命令。可能会支持配置。总体来说会有几十个命令。可能实现集群 API 装饰器以允许集群配置的客户端连接到单个实例。
+
+接下来的里程碑将在此过程中确定。
+
+# 设计决定
+
+## 新颖的缓存设计
+
+Dragonfly 有一个统一的自适应缓存算法，非常简单且内存高效。您可以通过传递 `--cache_mode=true` 参数来启用缓存模式。一旦该模式被启动，Dragonfly 仅会在将要达到最大内存限制时，删除未来最不可能偶然发现的key。
+
+## 相对精确的过期期限
+
+过期时间限制在4年内。此外，对于超过 134217727 毫秒（大约 37 小时）的截止日期，毫秒精度的到期期限（PEXPIRE/PSETEX 等）将四舍五入到最接近的秒数。这种舍入的误差小于 0.001%，我希望这对于大范围是可以接受的。如果您不能接收，请提交issue告诉我您的解释。
+
+有关此实现与 Redis 实现之间的更详细的差异请[看这里](https://github.com/chubxu/dragonfly/blob/main/docs/differences.md)。
+
+## 原生的Http console并兼容Prometheus的指标
+
+默认情况下，Dragonfly 允许通过其主 TCP 端口 (6379) 进行 http 访问。没错，你可以通过 Redis 协议（REpl）和 HTTP 协议连接到 Dragonfly——服务器在连接发起时会自动识别协议。现在就用你的浏览器试试吧。目前它没有太多信息，但未来我们计划添加有用的调试和管理能力。如果你访问`:6379/metrics`url，你将会看到一些兼容Prometheus的监控指标。
+
+Prometheus 导出的指标与 Grafana 兼容，具体参考[这里](https://github.com/chubxu/dragonfly/blob/main/examples/grafana/dashboard.json)。
+
+注意！Http控制台推荐在安全网络中访问。如果你向外部暴露了Dragonfly的TCP端口，推荐你关闭控制台的访问功能。你可以通过`--http_admin_console=false`或者`--nohttp_admin_console`参数关闭。
+
+# 背景
+
